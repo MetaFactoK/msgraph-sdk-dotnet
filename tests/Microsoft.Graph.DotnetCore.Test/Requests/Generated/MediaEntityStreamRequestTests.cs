@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------------------
 
 using Microsoft.Graph;
+using Microsoft.Kiota.Abstractions;
 using Moq;
 using System;
 using System.Collections.Generic;
@@ -21,7 +22,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Generated
         public void RequestBuilder()
         {
             var expectedRequestUri = new Uri(string.Format(Constants.Url.GraphBaseUrlFormatString, "v1.0") + "/me/photo/$value");
-            var profilePhotoContentRequestBuilder = this.graphServiceClient.Me.Photo.Content as ProfilePhotoContentRequestBuilder;
+            var profilePhotoContentRequestBuilder = this.graphServiceClient.Me.Photo.Content;
 
             Assert.NotNull(profilePhotoContentRequestBuilder);
             Assert.Equal(expectedRequestUri, new Uri(profilePhotoContentRequestBuilder.RequestUrl));
@@ -73,7 +74,9 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Generated
                         CancellationToken.None))
                     .Returns(System.Threading.Tasks.Task.FromResult(httpResponseMessage));
 
-                using (var returnedResponseStream = await this.graphServiceClient.Me.Photo.Content.Request().PutAsync(requestStream))
+                var responseHandler = new NativeResponseHandler();
+                await this.graphServiceClient.Me.Photo.Content.PutAsync(requestStream, responseHandler: responseHandler);
+                using (var returnedResponseStream =  await (responseHandler.Value as HttpResponseMessage).Content.ReadAsStreamAsync())
                 {
                     Assert.Equal(await httpResponseMessage.Content.ReadAsStreamAsync(), returnedResponseStream);
                 }

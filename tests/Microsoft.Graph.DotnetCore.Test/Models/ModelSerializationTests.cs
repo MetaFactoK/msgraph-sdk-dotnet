@@ -1,4 +1,4 @@
-// ------------------------------------------------------------------------------
+﻿// ------------------------------------------------------------------------------
 //  Copyright (c) Microsoft Corporation.  All Rights Reserved.  Licensed under the MIT License.  See License in the project root for license information.
 // ------------------------------------------------------------------------------
 
@@ -6,13 +6,19 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
 {
     using System;
     using Xunit;
+    using Microsoft.Graph.Models;
+    using Microsoft.Kiota.Abstractions;
+    using Microsoft.Kiota.Serialization.Json;
+    using System.IO;
+    using System.Text;
+
     public class ModelSerializationTests
     {
-        private Serializer serializer;
+        private readonly JsonParseNodeFactory parseNodeFactory;
 
         public ModelSerializationTests()
         {
-            this.serializer = new Serializer();
+            this.parseNodeFactory = new JsonParseNodeFactory();
         }
 
         [Fact]
@@ -26,12 +32,14 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 userId,
                 givenName);
 
-            var user = this.serializer.DeserializeObject<Entity>(stringToDeserialize) as User;
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(stringToDeserialize));
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, memoryStream);
+            var user = parseNode.GetObjectValue<User>(User.CreateFromDiscriminatorValue);
 
             Assert.NotNull(user);
             Assert.Equal(userId, user.Id);
             Assert.Equal(givenName, user.GivenName);
-            Assert.Null(user.GetEtag());
+            //Assert.Null(user.GetEtag());
         }
 
         [Fact]
@@ -45,7 +53,9 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 directoryObjectId,
                 givenName);
 
-            var directoryObject = this.serializer.DeserializeObject<DirectoryObject>(stringToDeserialize);
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(stringToDeserialize));
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, memoryStream);
+            var directoryObject = parseNode.GetObjectValue<DirectoryObject>(DirectoryObject.CreateFromDiscriminatorValue);
 
             Assert.NotNull(directoryObject);
             Assert.Equal(directoryObjectId, directoryObject.Id);
@@ -64,7 +74,9 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 bodyContent,
                 enumValue);
 
-            var itemBody = this.serializer.DeserializeObject<ItemBody>(stringToDeserialize);
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(stringToDeserialize));
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, memoryStream);
+            var itemBody = parseNode.GetObjectValue<ItemBody>(ItemBody.CreateFromDiscriminatorValue);
 
             Assert.NotNull(itemBody);
             Assert.Equal(bodyContent, itemBody.Content);
@@ -80,28 +92,13 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
 
             var stringToDeserialize = string.Format("{{\"startDate\":\"{0}\"}}", now.ToString("yyyy-MM-dd"));
 
-            var recurrenceRange = this.serializer.DeserializeObject<RecurrenceRange>(stringToDeserialize);
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(stringToDeserialize));
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, memoryStream);
+            var recurrenceRange = parseNode.GetObjectValue<RecurrenceRange>(RecurrenceRange.CreateFromDiscriminatorValue);
 
-            Assert.Equal(now.Year, recurrenceRange.StartDate.Year);
-            Assert.Equal(now.Month, recurrenceRange.StartDate.Month);
-            Assert.Equal(now.Day, recurrenceRange.StartDate.Day);
-        }
-
-        [Fact]
-        public void DeserializeInterface()
-        {
-            var driveItemChildrenCollectionPage = new DriveItemChildrenCollectionPage
-            {
-                new DriveItem { Id = "id" },
-            };
-
-            var serializedString = this.serializer.SerializeObject(driveItemChildrenCollectionPage);
-
-            var deserializedPage = this.serializer.DeserializeObject<IDriveItemChildrenCollectionPage>(serializedString);
-
-            Assert.IsType<DriveItemChildrenCollectionPage>(deserializedPage);
-            Assert.Equal(1, deserializedPage.Count);
-            Assert.Equal("id", deserializedPage[0].Id);
+            Assert.Equal(now.Year, recurrenceRange.StartDate.Value.Year);
+            Assert.Equal(now.Month, recurrenceRange.StartDate.Value.Month);
+            Assert.Equal(now.Day, recurrenceRange.StartDate.Value.Day);
         }
 
         [Fact]
@@ -117,7 +114,9 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 additionalKey,
                 additionalValue);
 
-            var entity = this.serializer.DeserializeObject<Entity>(stringToDeserialize);
+            var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(stringToDeserialize));
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, memoryStream);
+            var entity = parseNode.GetObjectValue<Entity>(Entity.CreateFromDiscriminatorValue);
 
             Assert.NotNull(entity);
             Assert.Equal(entityId, entity.Id);
@@ -130,7 +129,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
         {
             var itemBody = new ItemBody
             {
-                ODataType = "microsoft.graph.itemBody",
+                OdataType = "microsoft.graph.itemBody",
                 Content = "bodyContent",
                 ContentType = BodyType.Text,
             };
@@ -140,11 +139,19 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 itemBody.Content,
                 "text");
 
-            var serializedValue = this.serializer.SerializeObject(itemBody);
+            // Serialize
+            using var jsonSerializerWriter = new JsonSerializationWriter();
+            jsonSerializerWriter.WriteObjectValue(string.Empty, itemBody);
+            var serializedStream = jsonSerializerWriter.GetSerializedContent();
 
-            Assert.Equal(expectedSerializedStream, serializedValue);
+            //Assert
+            var streamReader = new StreamReader(serializedStream);
+            Assert.Equal(expectedSerializedStream, streamReader.ReadToEnd());
 
-            var newItemBody = this.serializer.DeserializeObject<ItemBody>(serializedValue);
+            // De serialize
+            serializedStream.Position = 0; //reset the stream to be read again
+            var parseNode = this.parseNodeFactory.GetRootParseNode(CoreConstants.MimeTypeNames.Application.Json, serializedStream);
+            var newItemBody = parseNode.GetObjectValue<ItemBody>(ItemBody.CreateFromDiscriminatorValue);
 
             Assert.NotNull(newItemBody);
             Assert.Equal(itemBody.Content, itemBody.Content);
@@ -164,11 +171,15 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
                 StartDate = new Date(now.Year, now.Month, now.Day),
             };
 
-            var serializedString = this.serializer.SerializeObject(recurrence);
+            using var jsonSerializerWriter = new JsonSerializationWriter();
+            jsonSerializerWriter.WriteObjectValue(string.Empty, recurrence);
+            var serializedStream = jsonSerializerWriter.GetSerializedContent();
 
-            Assert.Equal(expectedSerializedString, serializedString);
+            // Assert
+            var streamReader = new StreamReader(serializedStream);
+            Assert.Equal(expectedSerializedString, streamReader.ReadToEnd());
         }
-
+        /*
         [Fact]
         public void TestEtagHelper()
         {
@@ -186,5 +197,6 @@ namespace Microsoft.Graph.DotnetCore.Test.Models
             Assert.Equal(userId, user.Id);
             Assert.Equal(testEtag, user.GetEtag());
         }
+        */
     }
 }

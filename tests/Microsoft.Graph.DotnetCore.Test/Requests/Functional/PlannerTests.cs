@@ -1,10 +1,12 @@
-namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
+﻿namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
 {
     using System;
     using System.Linq;
     using System.Collections.Generic;
     using System.Threading.Tasks;
     using Xunit;
+    using Microsoft.Graph.Models;
+    using Microsoft.Kiota.Abstractions;
 
     public class PlannerTests : GraphTestBase
     {
@@ -13,7 +15,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
         public async void TestCleanUp()
         {
             Group toDelete = testGroup;
-            await graphClient.Groups[toDelete.Id].Request().DeleteAsync();
+            await graphClient.Groups[toDelete.Id].DeleteAsync();
         }
 
         public async Task<Group> CreateGroup()
@@ -28,12 +30,16 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             clientOnlyGroup.SecurityEnabled = false;
 
             // Call Graph service API to create the new group.
-            var syncdGroup = await graphClient.Groups.Request().AddAsync(clientOnlyGroup);
+            var syncdGroup = await graphClient.Groups.PostAsync(clientOnlyGroup);
 
-            var thisUser = await graphClient.Me.Request().GetAsync();
+            var thisUser = await graphClient.Me.GetAsync();
 
+            var reference = new ReferenceCreate
+            {
+                OdataId = thisUser.Id
+            };
             // add the current user as member.
-            await graphClient.Groups[syncdGroup.Id].Members.References.Request().AddAsync(thisUser);
+            await graphClient.Groups[syncdGroup.Id].Members.Ref.PostAsync(reference);
 
             // The group may take a few seconds to be available in Planner.
             await Task.Delay(20000);
@@ -43,7 +49,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
 
         public Task DeleteGroup(Group group)
         {
-            return graphClient.Groups[group.Id].Request().DeleteAsync();
+            return graphClient.Groups[group.Id].DeleteAsync();
         }
 
         public async Task<PlannerPlan> CreatePlan(Group owner)
@@ -53,7 +59,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             forCreate.Title = "Test Plan" + Guid.NewGuid();
             forCreate.Owner = owner.Id;
 
-            return await graphClient.Planner.Plans.Request().AddAsync(forCreate);
+            return await graphClient.Planner.Plans.PostAsync(forCreate);
         }
 
         // Working as expected.
@@ -65,11 +71,11 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
                 var plannerPlan = await GetPlannerPlan();
 
                 Assert.NotNull(plannerPlan);
-                Assert.IsType(typeof(PlannerPlan), plannerPlan);
+                Assert.IsType<PlannerPlan>(plannerPlan);
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, $"Something happened, check out a trace. Error: {e.Error}");
+                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Message);
             }
         }
 
@@ -82,11 +88,11 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
 
             try
             {
-                return await graphClient.Planner.Plans[planId].Request().GetAsync();
+                return await graphClient.Planner.Plans[planId].GetAsync();
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, $"Tried to get a PlannerPlan and failed. Error: {e.Error}");
+                Assert.True(false, $"Tried to get a PlannerPlan and failed. Error: {e.Message}");
             }
             return null;
         }
@@ -100,17 +106,17 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
                 // Get a default plan
                 var plannerPlan = await GetPlannerPlan();
 
-                var plannerPlanTasksCollectionPage = await graphClient.Planner.Plans[plannerPlan.Id].Tasks.Request().GetAsync();
+                var plannerPlanTasksCollectionPage = await graphClient.Planner.Plans[plannerPlan.Id].Tasks.GetAsync();
 
                 Assert.NotNull(plannerPlanTasksCollectionPage);
-                Assert.IsType(typeof(PlannerPlanTasksCollectionPage), plannerPlanTasksCollectionPage);
+                Assert.IsType<PlannerTaskCollectionResponse>(plannerPlanTasksCollectionPage);
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, $"Something happened, check out a trace. Error: {e.Error}");
+                Assert.True(false, $"Something happened, check out a trace. Error: {e.Message}");
             }
         }
-
+/*
         // Successful 4/27/2017 - Creates a task without a bucket.
         [Fact(Skip = "No CI set up for functional tests")]
         //https://developer.microsoft.com/en-us/graph/docs/api-reference/beta/api/planner_post_tasks
@@ -131,7 +137,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskToCreate.AppliedCategories.Category3 = true;
             taskToCreate.DueDateTime = DateTimeOffset.UtcNow.AddDays(3);
 
-            PlannerTask createdTask = await graphClient.Planner.Tasks.Request().AddAsync(taskToCreate);
+            PlannerTask createdTask = await graphClient.Planner.Tasks.PostAsync(taskToCreate);
 
             Assert.NotNull(createdTask);
             Assert.Equal(taskToCreate.Title, createdTask.Title);
@@ -152,8 +158,8 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskToCreate.PlanId = plannerPlan.Id;
             taskToCreate.Title = "New task title";
 
-            PlannerTask createdTask = await graphClient.Planner.Tasks.Request().AddAsync(taskToCreate);
-            PlannerTaskDetails taskDetails = await graphClient.Planner.Tasks[createdTask.Id].Details.Request().GetAsync();
+            PlannerTask createdTask = await graphClient.Planner.Tasks.PostAsync(taskToCreate);
+            PlannerTaskDetails taskDetails = await graphClient.Planner.Tasks[createdTask.Id].Details.GetAsync();
 
             PlannerTaskDetails taskDetailsToUpdate = new PlannerTaskDetails();
             taskDetailsToUpdate.Checklist = new PlannerChecklistItems();
@@ -167,7 +173,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskDetailsToUpdate.Description = "Description of the task";
 
             string etag = taskDetails.GetEtag();
-            PlannerTaskDetails updatedTaskDetails = await graphClient.Planner.Tasks[createdTask.Id].Details.Request().Header("If-Match", etag).Header("Prefer", "return=representation").UpdateAsync(taskDetailsToUpdate);
+            PlannerTaskDetails updatedTaskDetails = await graphClient.Planner.Tasks[createdTask.Id].Details.Header("If-Match", etag).Header("Prefer", "return=representation").UpdateAsync(taskDetailsToUpdate);
 
             Assert.Equal("Description of the task", updatedTaskDetails.Description);
             Assert.Equal(PlannerPreviewType.Checklist, updatedTaskDetails.PreviewType);
@@ -186,7 +192,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             await Task.Delay(3000); // sometimes we need to delay, the group information needs to be set before we can create a plan.
             var plannerPlan = await CreatePlan(group);
 
-            PlannerPlanDetails planDetails = await graphClient.Planner.Plans[plannerPlan.Id].Details.Request().GetAsync();
+            PlannerPlanDetails planDetails = await graphClient.Planner.Plans[plannerPlan.Id].Details.GetAsync();
 
             string etag = planDetails.GetEtag();
             PlannerPlanDetails planDetailsToUpdate = new PlannerPlanDetails();
@@ -196,7 +202,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             planDetailsToUpdate.SharedWith = new PlannerUserIds();
             planDetailsToUpdate.SharedWith.Add("me");
 
-            PlannerPlanDetails updatedPlanDetails = await graphClient.Planner.Plans[plannerPlan.Id].Details.Request().Header("If-Match", etag).Header("Prefer", "return=representation").UpdateAsync(planDetailsToUpdate);
+            PlannerPlanDetails updatedPlanDetails = await graphClient.Planner.Plans[plannerPlan.Id].Details.Header("If-Match", etag).Header("Prefer", "return=representation").UpdateAsync(planDetailsToUpdate);
 
             Assert.Equal("First category", updatedPlanDetails.CategoryDescriptions.Category1);
             Assert.Equal("Category 4", updatedPlanDetails.CategoryDescriptions.Category4);
@@ -218,7 +224,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskToCreate.Assignments = new PlannerAssignments();
             taskToCreate.Assignments.AddAssignee("me");
 
-            PlannerTask topTask = await graphClient.Planner.Tasks.Request().AddAsync(taskToCreate);
+            PlannerTask topTask = await graphClient.Planner.Tasks.PostAsync(taskToCreate);
 
             taskToCreate = new PlannerTask();
             taskToCreate.PlanId = plannerPlan.Id;
@@ -226,7 +232,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskToCreate.Assignments = new PlannerAssignments();
             taskToCreate.Assignments.AddAssignee("me");
 
-            PlannerTask bottomTask = await graphClient.Planner.Tasks.Request().AddAsync(taskToCreate);
+            PlannerTask bottomTask = await graphClient.Planner.Tasks.PostAsync(taskToCreate);
 
             taskToCreate = new PlannerTask();
             taskToCreate.PlanId = plannerPlan.Id;
@@ -234,7 +240,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             taskToCreate.Assignments = new PlannerAssignments();
             taskToCreate.Assignments.AddAssignee("me");
 
-            PlannerTask middleTask = await graphClient.Planner.Tasks.Request().AddAsync(taskToCreate);
+            PlannerTask middleTask = await graphClient.Planner.Tasks.PostAsync(taskToCreate);
 
             // give it two second to ensure asynchronous processing is completed.
             await Task.Delay(10000);
@@ -279,5 +285,6 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             Assert.Equal(middleTask.Id, orderedTaskFormats[1].Key);
             Assert.Equal(bottomTask.Id, orderedTaskFormats[2].Key);
         }
+*/
     }
 }

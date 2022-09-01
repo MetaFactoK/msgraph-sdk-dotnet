@@ -4,20 +4,21 @@
 
 namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
 {
-    using Microsoft.Graph;
+    using Microsoft.Graph.Models;
+    using Microsoft.Graph.Me.SendMail;
     using Microsoft.Graph.DotnetCore.Test.Requests.Functional.Resources;
     using System;
     using System.Collections.Generic;
     using System.IO;
-    using System.Threading.Tasks;
     using Xunit;
+    using Microsoft.Kiota.Abstractions;
 
     public class MailTests : GraphTestBase
     {
         public async System.Threading.Tasks.Task<Message> createEmail(string emailBody)
         {
             // Get the test user.
-            var me = await graphClient.Me.Request().GetAsync();
+            var me = await graphClient.Me.GetAsync();
 
             var subject = DateTime.Now.ToString();
 
@@ -48,22 +49,22 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             {
                 var message = await createEmail("Sent from the MailSendMail test.");
 
-                // Send email to the test user.
-                await graphClient.Me.SendMail(message, true).Request().PostAsync();
-
-                var query = new List<Option>()
+                var sendMailBody = new SendMailPostRequestBody
                 {
-                    new QueryOption("filter", "Subject eq '" + message.Subject + "'")
+                    Message = message,
+                    SaveToSentItems = true
                 };
+                // Send email to the test user.
+                await graphClient.Me.SendMail.PostAsync(sendMailBody);
 
                 // Check the we found the sent email in the sent items folder.
-                var mailFolderMessagesCollectionPage = await graphClient.Me.MailFolders["sentitems"].Messages.Request(query).GetAsync();
+                var mailFolderMessagesCollectionPage = await graphClient.Me.MailFolders["sentitems"].Messages.GetAsync(requestConfiguration => requestConfiguration.QueryParameters.Filter = "Subject eq '" + message.Subject + "'");
 
                 Assert.NotNull(mailFolderMessagesCollectionPage);
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Error.Code);
+                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Message);
             }
         }
 
@@ -76,7 +77,7 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
                 var message = await createEmail("Sent from the MailSendMailWithAttachment test.");
 
                 var attachment = new FileAttachment();
-                attachment.ODataType = "#microsoft.graph.fileAttachment";
+                attachment.OdataType = "#microsoft.graph.fileAttachment";
                 attachment.Name = "MyFileAttachment.txt";
                 using (Stream ms = ResourceHelper.GetResourceAsStream(ResourceHelper.TextFile))
                 using (BinaryReader reader = new BinaryReader(ms))
@@ -84,14 +85,19 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
                     attachment.ContentBytes = reader.ReadBytes((int)ms.Length);
                 }
 
-                message.Attachments = new MessageAttachmentsCollectionPage();
+                message.Attachments = new List<Attachment>();
                 message.Attachments.Add(attachment);
 
-                await graphClient.Me.SendMail(message, true).Request().PostAsync();
+                var sendMailBody = new SendMailPostRequestBody
+                {
+                    Message = message,
+                    SaveToSentItems = true
+                };
+                await graphClient.Me.SendMail.PostAsync(sendMailBody);
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Error.Code);
+                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Message);
             }
         }
 
@@ -101,31 +107,27 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             try
             {
                 // Find messages with attachments.
-                var messageCollection = await graphClient.Me.Messages.Request()
-                                                                     .Filter("hasAttachments eq true")
-                                                                     .GetAsync();
+                var messageCollection = await graphClient.Me.Messages.GetAsync(requestConfiguration => requestConfiguration.QueryParameters.Filter = "hasAttachments eq true");
 
-                if (messageCollection.Count > 0)
+                if (messageCollection.Value.Count > 0)
                 {
                     // Get information about attachments on the first message that has attachments.
-                    var attachments = await graphClient.Me.Messages[messageCollection[0].Id]
+                    var attachments = await graphClient.Me.Messages[messageCollection.Value[0].Id]
                                                           .Attachments
-                                                          .Request()
                                                           .GetAsync();
 
                     // Get an attachment.
-                    var attachmment = await graphClient.Me.Messages[messageCollection[0].Id]
-                                                          .Attachments[attachments[0].Id]
-                                                          .Request()
+                    var attachmment = await graphClient.Me.Messages[messageCollection.Value[0].Id]
+                                                          .Attachments[attachments.Value[0].Id]
                                                           .GetAsync();
 
                     if (attachmment is FileAttachment)
                         Assert.NotNull((attachmment as FileAttachment).ContentBytes);
                 }
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Error.Code);
+                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Message);
             }
         }
 
@@ -136,19 +138,19 @@ namespace Microsoft.Graph.DotnetCore.Test.Requests.Functional
             {
                 var messages = new List<Message>();
 
-                var messagePage = await graphClient.Me.Messages.Request().GetAsync();
+                var messagePage = await graphClient.Me.Messages.GetAsync();
 
-                messages.AddRange(messagePage.CurrentPage);
+                messages.AddRange(messagePage.Value);
 
-                while (messagePage.NextPageRequest != null)
+                while (messagePage.OdataNextLink != null)
                 {
-                    messagePage = await messagePage.NextPageRequest.GetAsync();
-                    messages.AddRange(messagePage.CurrentPage);
+                    messagePage = await new Me.Messages.MessagesRequestBuilder(messagePage.OdataNextLink, graphClient.RequestAdapter).GetAsync();
+                    messages.AddRange(messagePage.Value);
                 }
             }
-            catch (Microsoft.Graph.ServiceException e)
+            catch (ApiException e)
             {
-                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Error.Code);
+                Assert.True(false, "Something happened, check out a trace. Error code: " + e.Message);
             }
         }
     }
