@@ -1,11 +1,11 @@
 namespace Microsoft.Graph.Models.CallRecords {
     /// <summary>Provides operations to manage the cloudCommunications singleton.</summary>
-    public enum NetworkConnectionType {
-        Unknown,
-        Wired,
-        Wifi,
-        Mobile,
-        Tunnel,
+    public enum Modality {
+        Audio,
+        Video,
+        VideoBasedScreenSharing,
+        Data,
+        ScreenSharing,
         UnknownFutureValue,
     }
 }
